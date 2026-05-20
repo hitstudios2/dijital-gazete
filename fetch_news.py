@@ -26,7 +26,14 @@ RSS_SOURCES = [
     "https://news.google.com/rss/search?q=cloud+computing+technology&hl=tr&gl=TR&ceid=TR%3Atr",
 ]
 
-KATEGORILER = ["Teknoloji", "Yazılım", "Donanım"]
+KATEGORILER = [
+    "Yapay Zeka",
+    "Donanım",
+    "Yazılım",
+    "Sosyal Medya",
+    "Siber Güvenlik",
+    "Teknoloji",
+]
 # ─────────────────────────────────────────────────────────────────────────────
 
 def log(msg):
@@ -107,10 +114,13 @@ JSON formatı (tam olarak bu şekilde):
 }}
 
 Kategori seçim kuralı:
-- Haber donanım, cihaz, chip, telefon, bilgisayar, ekipman ile ilgiliyse: "Donanım"
-- Haber yazılım, uygulama, kod, platform, sistem ile ilgiliyse: "Yazılım"  
+- Haber yapay zeka, makine öğrenmesi, ChatGPT, Gemini, LLM ile ilgiliyse: "Yapay Zeka"
+- Haber telefon, tablet, bilgisayar, chip, ekran, cihaz, donanım ile ilgiliyse: "Donanım"
+- Haber yazılım, uygulama, kod, platform, güncelleme, işletim sistemi ile ilgiliyse: "Yazılım"
+- Haber Instagram, TikTok, Twitter/X, YouTube, Facebook, sosyal ağ ile ilgiliyse: "Sosyal Medya"
+- Haber hack, siber saldırı, güvenlik açığı, veri ihlali, fidye yazılımı ile ilgiliyse: "Siber Güvenlik"
 - Diğer tüm teknoloji haberleri için: "Teknoloji"
-- kategori alanına SADECE şu 3 değerden birini yaz: Teknoloji, Yazılım, Donanım
+- kategori alanına SADECE şu 6 değerden birini yaz: Yapay Zeka, Donanım, Yazılım, Sosyal Medya, Siber Güvenlik, Teknoloji
 
 icerik kuralları:
 - 3-4 paragraf, HTML formatında
