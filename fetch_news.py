@@ -67,7 +67,7 @@ def rss_haberleri_cek():
     return benzersiz
 
 def gemini_iste(prompt, api_key, max_tokens=1200):
-    url  = f"https://generativelanguage.googleapis.com/v1beta/{GEMINI_MODEL}:generateContent?key={api_key}"
+    url  = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.7, "maxOutputTokens": max_tokens}
