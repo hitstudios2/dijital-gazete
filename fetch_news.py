@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 # ─── AYARLAR ────────────────────────────────────────────────────────────────
 HABER_SAYISI = 10
 MAX_HABER    = 30
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash"
 RETRY_LIMIT  = 3
 RETRY_WAIT   = 5
 
