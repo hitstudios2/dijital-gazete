@@ -39,6 +39,13 @@ KATEGORILER = [
 def log(msg):
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
+def baslik_temizle(baslik):
+    """Haber başlığından kaynak site adını temizle."""
+    # " - Site Adı" veya " | Site Adı" formatını kaldır
+    import re
+    baslik = re.sub(r'\s*[-|]\s*[^-|]{3,40}$', '', baslik).strip()
+    return baslik
+
 def rss_haberleri_cek():
     haberler = []
     for url in RSS_SOURCES:
@@ -295,9 +302,15 @@ def main():
                 basari = True
                 break
             except Exception as e:
-                log(f"  Hata deneme {deneme+1}/{RETRY_LIMIT}: {e}")
+                hata_str = str(e)
+                log(f"  Hata deneme {deneme+1}/{RETRY_LIMIT}: {hata_str[:120]}")
                 if deneme < RETRY_LIMIT - 1:
-                    time.sleep(RETRY_WAIT)
+                    import re as re2
+                    bekle = RETRY_WAIT
+                    eslesme = re2.search(r'try again in (\d+\.?\d*)s', hata_str)
+                    if eslesme:
+                        bekle = min(float(eslesme.group(1)) + 2, 30)
+                    time.sleep(bekle)
 
         if not basari:
             log(f"  Atlandı (üretilemedi)")
@@ -306,7 +319,7 @@ def main():
         # Anında Firebase'e yaz
         yeni_haber = {
             "id":       hid,
-            "baslik":   rss_h["baslik"],
+            "baslik":   baslik_temizle(rss_h["baslik"]),
             "ozet":     ozet,
             "icerik":   icerik,
             "kategori": kategori,
