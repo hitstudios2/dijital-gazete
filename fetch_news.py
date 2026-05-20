@@ -175,35 +175,46 @@ def groq_iste(sistem, kullanici, api_key, max_tokens=1500):
                 raise
 
 def makale_uret(baslik, api_key):
-    """Sadece makale ve özet üret. Kategori artık RSS'ten geliyor."""
-    sistem = "Sen Hit Studios'un teknoloji editörüsün. Profesyonel, akıcı Türkçe teknoloji makaleleri yazıyorsun. Verilen JSON formatına kesinlikle uyuyorsun."
-    kullanici = f"""Aşağıdaki haber başlığı hakkında gerçek bir teknoloji makalesi yaz ve SADECE JSON olarak döndür:
+    """Makale ve özet üret. JSON yerine ayraç formatı kullanılır."""
+    sistem = "Sen Hit Studios'un teknoloji editörüsün. Profesyonel, akıcı Türkçe teknoloji makaleleri yazıyorsun."
+    kullanici = f"""Aşağıdaki haber başlığı hakkında Türkçe makale yaz.
 
-Haber başlığı: {baslik}
+Haber: {baslik}
 
-Döndüreceğin JSON:
-{{
-  "ozet": "Bu haberi özetleyen tek ve dikkat çekici bir Türkçe cümle",
-  "icerik": "Makalenin tüm HTML içeriği buraya gelecek"
-}}
+Tam olarak şu formatta yaz, başka hiçbir şey ekleme:
 
-icerik alanı için kurallar:
-- Gerçek makale içeriği yaz, örnek metin değil
-- 3 ile 4 paragraf yaz
-- Her paragrafı <p> etiketi içine al
-- Araya konuya uygun bir başlık ekle, <h3> etiketini kullan
-- Türkçe yaz, doğal ve akıcı olsun
-- HTML etiketleri dışında tırnak işareti kullanma
-
-Sadece JSON döndür:"""
+===OZET===
+Bu haberi özetleyen tek ve dikkat çekici bir Türkçe cümle buraya gelecek.
+===ICERIK===
+<p>Giriş paragrafı buraya gelecek. Haberin bağlamını anlat.</p>
+<h3>Konuya uygun bir başlık</h3>
+<p>İkinci paragraf buraya gelecek. Daha fazla detay ver.</p>
+<p>Üçüncü paragraf buraya gelecek. Sonuç veya değerlendirme yap.</p>
+===BITIS==="""
 
     metin = groq_iste(sistem, kullanici, api_key, 1200)
-    if "{" in metin and "}" in metin:
-        start = metin.index("{")
-        end   = metin.rindex("}") + 1
-        metin = metin[start:end]
-    data   = json.loads(metin)
-    return data.get("ozet", ""), data.get("icerik", "")
+
+    # Ayraçlarla parse et
+    ozet   = ""
+    icerik = ""
+    try:
+        if "===OZET===" in metin and "===ICERIK===" in metin:
+            ozet_kismi   = metin.split("===OZET===")[1].split("===ICERIK===")[0].strip()
+            icerik_kismi = metin.split("===ICERIK===")[1].split("===BITIS===")[0].strip()
+            ozet   = ozet_kismi
+            icerik = icerik_kismi
+        else:
+            # Ayraç yoksa ilk satırı özet, kalanı içerik yap
+            satirlar = metin.strip().split("\n")
+            ozet   = satirlar[0].strip()
+            icerik = "\n".join(satirlar[1:]).strip()
+    except Exception as e:
+        raise Exception(f"Parse hatası: {e}")
+
+    if not ozet or not icerik:
+        raise Exception("Özet veya içerik boş geldi")
+
+    return ozet, icerik
 
 def get_access_token(service_account_json):
     sa = json.loads(service_account_json)
