@@ -11,7 +11,7 @@ import requests
 # ─── AYARLAR ────────────────────────────────────────────────────────────────
 HABER_SAYISI = 10
 MAX_HABER    = 30
-GEMINI_MODEL = "gemini-2.0-flash-lite"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 RETRY_LIMIT  = 3
 RETRY_WAIT   = 8
 
