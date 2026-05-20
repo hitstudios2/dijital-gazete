@@ -99,21 +99,25 @@ def haber_uret(baslik, api_key):
 
 Haber Başlığı: {baslik}
 
-Kategoriler: Teknoloji, Yazılım, Donanım
-
-JSON formatı:
+JSON formatı (tam olarak bu şekilde):
 {{
   "ozet": "tek cümlelik dikkat çekici Türkçe özet",
-  "kategori": "Teknoloji veya Yazılım veya Donanım",
+  "kategori": "Teknoloji",
   "icerik": "<p>paragraf 1</p><h3>Bölüm Başlığı</h3><p>paragraf 2</p><p>paragraf 3</p>"
 }}
 
-Kurallar:
-- ozet: tek cümle, dikkat çekici
-- kategori: sadece 3 seçenekten biri
-- icerik: 3-4 paragraf, HTML formatında, <p> ve <h3> etiketleri kullan
+Kategori seçim kuralı:
+- Haber donanım, cihaz, chip, telefon, bilgisayar, ekipman ile ilgiliyse: "Donanım"
+- Haber yazılım, uygulama, kod, platform, sistem ile ilgiliyse: "Yazılım"  
+- Diğer tüm teknoloji haberleri için: "Teknoloji"
+- kategori alanına SADECE şu 3 değerden birini yaz: Teknoloji, Yazılım, Donanım
+
+icerik kuralları:
+- 3-4 paragraf, HTML formatında
+- <p> ve <h3> etiketleri kullan
 - Türkçe yaz, doğal ve akıcı olsun
-- Sadece JSON döndür"""
+
+SADECE JSON döndür, başka hiçbir şey yazma."""
 
     metin = groq_iste(sistem, kullanici, api_key, 1500)
 
