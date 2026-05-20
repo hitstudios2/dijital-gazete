@@ -179,17 +179,37 @@ def temizle(s):
     """Firebase için string temizle."""
     if not isinstance(s, str):
         s = str(s)
-    # Null byte ve kontrol karakterlerini kaldır
     return s.replace("\x00", "").replace("\r", "")
 
 def firebase_yaz(project_id, token, haberler):
     url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents/hit_data/gazete"
+    
     def to_fs(h):
-        return {"mapValue": {"fields": {k: {"stringValue": temizle(v)} for k,v in h.items()}}}
+        fields = {}
+        for k, v in h.items():
+            v_str = temizle(v)
+            # icerik alanını base64 ile sakla (HTML özel karakterler sorun çıkarmasın)
+            if k == "icerik":
+                v_str = base64.b64encode(v_str.encode("utf-8")).decode("ascii")
+            fields[k] = {"stringValue": v_str}
+        return {"mapValue": {"fields": fields}}
+    
     body = {"fields": {"items": {"arrayValue": {"values": [to_fs(h) for h in haberler]}}}}
-    r = requests.patch(url, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=30)
+    
+    # JSON'u manuel encode et
+    body_str = json.dumps(body, ensure_ascii=True)
+    
+    r = requests.patch(
+        url, 
+        data=body_str.encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }, 
+        timeout=30
+    )
     if not r.ok:
-        raise Exception(f"Firebase yazma hatası: {r.status_code} {r.text[:200]}")
+        raise Exception(f"Firebase yazma hatası: {r.status_code} {r.text[:300]}")
 
 def haber_id(baslik):
     return hashlib.md5(baslik.encode("utf-8")).hexdigest()[:12]
