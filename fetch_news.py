@@ -15,7 +15,7 @@ from email.utils import parsedate_to_datetime
 # ─── AYARLAR ────────────────────────────────────────────────────────────────
 KATEGORI_BASI_HABER = 2
 MAX_HABER           = 48
-SAAT_FILTRESI       = 24      # Son kaç saatin haberleri alınsın
+SAAT_FILTRESI       = 48      # Son kaç saatin haberleri alınsın
 GROQ_MODEL          = "llama-3.1-8b-instant"
 RETRY_LIMIT         = 3
 RETRY_WAIT          = 8
@@ -60,6 +60,16 @@ KATEGORI_RSS = {
 def log(msg):
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
+def turkce_mi(baslik):
+    """Başlık Latin/Türkçe alfabesinde mi kontrol et. Kiril, Arap vb. dilleri filtrele."""
+    # Latin ve Türkçe özel karakterler dışında çok fazla karakter varsa reddet
+    latin_ve_turkce = set('abcçdefgğhıijklmnoöpqrsştuüvwxyzABCÇDEFGĞHIİJKLMNOÖPQRSŞTUÜVWXYZ0123456789 .,!?:;\'"-()[]&@#%+/\\')
+    toplam = len(baslik)
+    if toplam == 0:
+        return False
+    latin_sayisi = sum(1 for c in baslik if c in latin_ve_turkce)
+    return (latin_sayisi / toplam) >= 0.85  # %85'i Latin/Türkçe ise kabul et
+
 def baslik_temizle(baslik):
     temiz = re.sub(r'\s*[-|]\s*[^-|]{3,50}$', '', baslik).strip()
     return temiz if temiz else baslik
@@ -100,6 +110,9 @@ def rss_cek(url, kategori):
 
             if not baslik or not link or len(baslik) < 10:
                 continue
+
+            if not turkce_mi(baslik):
+                continue  # Türkçe/Latin olmayan haberleri atla
 
             if not haber_taze_mi(pub_date):
                 atlanan += 1
@@ -259,7 +272,7 @@ def main():
     log("=" * 55)
     log("Hit Studios Haber Üretici v7 Başladı")
     log(f"Hedef: {len(KATEGORILER)} kategori × {KATEGORI_BASI_HABER} = {len(KATEGORILER)*KATEGORI_BASI_HABER} haber")
-    log(f"Filtre: Son {SAAT_FILTRESI} saatin haberleri")
+    log(f"Filtre: Son {SAAT_FILTRESI} saatin haberleri, sadece Türkçe/Latin")
     log("=" * 55)
 
     groq_key   = os.environ.get("GROQ_API_KEY", "")
