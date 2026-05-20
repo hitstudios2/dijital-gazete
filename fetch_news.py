@@ -1,6 +1,7 @@
 """
-Hit Studios - Otomatik Haber Üretici v3
-requests kütüphanesi ile — daha güvenilir hata yönetimi
+Hit Studios - Otomatik Haber Üretici v4
+Her haber üretildiğinde anında Firebase'e yazar.
+Kota bitse bile üretilen haberler kaybolmaz.
 """
 
 import os, json, time, random, base64, hashlib, datetime
@@ -27,21 +28,9 @@ RSS_SOURCES = [
 ]
 
 KATEGORILER = [
-    "Yapay Zeka",
-    "Mobil",
-    "Siber Güvenlik",
+    "Teknoloji",
     "Yazılım",
     "Donanım",
-    "Girişim",
-    "Oyun & Eğlence",
-    "Bulut & Altyapı",
-    "Blockchain & Kripto",
-    "Veri & Analitik",
-    "Robotik & Otomasyon",
-    "Ar-Ge & İnovasyon",
-    "E-Ticaret & Fintech",
-    "Sosyal Medya",
-    "Uzay & Bilim",
 ]
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -82,19 +71,13 @@ def gemini_iste(prompt, api_key, max_tokens=1200):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": max_tokens
-        }
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": max_tokens}
     }
     r = requests.post(url, json=payload, timeout=60)
-
     if not r.ok:
-        raise Exception(f"Gemini HTTP {r.status_code}: {r.text[:200]}")
-
+        raise Exception(f"Gemini HTTP {r.status_code}: {r.text[:300]}")
     data  = r.json()
     metin = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-
     if "```" in metin:
         parcalar = metin.split("```")
         metin = parcalar[1] if len(parcalar) > 1 else parcalar[0]
@@ -124,14 +107,13 @@ Başlık: {baslik}""", api_key, 80)
 
 def kategori_belirle(baslik, api_key):
     liste = "\n".join(f"- {k}" for k in KATEGORILER)
-    prompt = f"""Aşağıdaki haber başlığı için en uygun kategoriyi seç. Sadece kategori adını yaz, başka hiçbir şey ekleme.
+    try:
+        k = gemini_iste(f"""Aşağıdaki haber başlığı için en uygun kategoriyi seç. Sadece kategori adını yaz, başka hiçbir şey ekleme.
 
 Kategoriler:
 {liste}
 
-Haber başlığı: {baslik}"""
-    try:
-        k = gemini_iste(prompt, api_key, 30).strip()
+Haber başlığı: {baslik}""", api_key, 30).strip()
         if k in KATEGORILER:
             return k
         for kat in KATEGORILER:
@@ -145,36 +127,24 @@ def get_access_token(service_account_json):
     sa = json.loads(service_account_json)
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import padding
-
-    private_key = serialization.load_pem_private_key(
-        sa["private_key"].encode(), password=None
-    )
+    private_key = serialization.load_pem_private_key(sa["private_key"].encode(), password=None)
     now     = int(time.time())
-    header  = base64.urlsafe_b64encode(
-        json.dumps({"alg": "RS256", "typ": "JWT"}).encode()
-    ).rstrip(b"=")
-    payload = base64.urlsafe_b64encode(
-        json.dumps({
-            "iss":   sa["client_email"],
-            "scope": "https://www.googleapis.com/auth/datastore",
-            "aud":   "https://oauth2.googleapis.com/token",
-            "exp":   now + 3600,
-            "iat":   now
-        }).encode()
-    ).rstrip(b"=")
+    header  = base64.urlsafe_b64encode(json.dumps({"alg":"RS256","typ":"JWT"}).encode()).rstrip(b"=")
+    payload = base64.urlsafe_b64encode(json.dumps({
+        "iss": sa["client_email"],
+        "scope": "https://www.googleapis.com/auth/datastore",
+        "aud": "https://oauth2.googleapis.com/token",
+        "exp": now + 3600, "iat": now
+    }).encode()).rstrip(b"=")
     signing_input = header + b"." + payload
     sig = base64.urlsafe_b64encode(
         private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
     ).rstrip(b"=")
     jwt_token = (signing_input + b"." + sig).decode()
-
-    r = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            "assertion":  jwt_token
-        }
-    )
+    r = requests.post("https://oauth2.googleapis.com/token", data={
+        "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        "assertion": jwt_token
+    })
     if not r.ok:
         raise Exception(f"Token alınamadı: {r.text}")
     return r.json()["access_token"]
@@ -186,39 +156,21 @@ def firebase_oku(project_id, token):
         if not r.ok:
             return []
         data = r.json()
-        vals = data.get("fields", {}).get("items", {}).get("arrayValue", {}).get("values", [])
-        return [
-            {k: list(v.values())[0] for k, v in item.get("mapValue", {}).get("fields", {}).items()}
-            for item in vals
-        ]
+        vals = data.get("fields",{}).get("items",{}).get("arrayValue",{}).get("values",[])
+        return [{k: list(v.values())[0] for k,v in item.get("mapValue",{}).get("fields",{}).items()} for item in vals]
     except Exception as e:
-        log(f"Firebase okuma (ilk çalışmada normal): {e}")
+        log(f"Firebase okuma: {e}")
         return []
 
 def firebase_yaz(project_id, token, haberler):
+    """Haberleri Firebase'e yaz."""
     url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents/hit_data/gazete"
-
     def to_fs(h):
-        return {"mapValue": {"fields": {k: {"stringValue": str(v)} for k, v in h.items()}}}
-
-    body = {
-        "fields": {
-            "items": {
-                "arrayValue": {
-                    "values": [to_fs(h) for h in haberler]
-                }
-            }
-        }
-    }
-    r = requests.patch(
-        url,
-        json=body,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30
-    )
+        return {"mapValue": {"fields": {k: {"stringValue": str(v)} for k,v in h.items()}}}
+    body = {"fields": {"items": {"arrayValue": {"values": [to_fs(h) for h in haberler]}}}}
+    r = requests.patch(url, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=30)
     if not r.ok:
         raise Exception(f"Firebase yazma hatası: {r.status_code} {r.text[:200]}")
-    log(f"Firebase'e {len(haberler)} haber yazıldı.")
 
 def haber_id(baslik):
     return hashlib.md5(baslik.encode("utf-8")).hexdigest()[:12]
@@ -231,7 +183,7 @@ def tarih_tr():
 
 def main():
     log("=" * 50)
-    log("Hit Studios Haber Üretici v3 Başladı")
+    log("Hit Studios Haber Üretici v4 Başladı")
     log("=" * 50)
 
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
@@ -242,11 +194,11 @@ def main():
         log("HATA: GEMINI_API_KEY veya FIREBASE_KEY eksik!")
         return
 
-    # Gemini bağlantısını test et
+    # Gemini testi
     log("Gemini bağlantısı test ediliyor...")
     try:
-        test = gemini_iste("Merhaba, kısa bir test. Sadece 'OK' yaz.", gemini_key, 10)
-        log(f"Gemini bağlantısı OK: {test[:30]}")
+        test = gemini_iste("Sadece 'OK' yaz.", gemini_key, 10)
+        log(f"Gemini OK: {test[:20]}")
     except Exception as e:
         log(f"Gemini bağlantı HATA: {e}")
         return
@@ -261,7 +213,7 @@ def main():
 
     # Mevcut haberleri oku
     mevcut    = firebase_oku(project_id, token)
-    var_idler = {h.get("id", "") for h in mevcut}
+    var_idler = {h.get("id","") for h in mevcut}
     log(f"Mevcut haber sayısı: {len(mevcut)}")
 
     # RSS'ten haber çek
@@ -270,8 +222,8 @@ def main():
         log("RSS'ten haber gelmedi, çıkılıyor.")
         return
 
-    # Haberleri üret
-    yeniler, sayac = [], 0
+    # Haberleri üret — her başarılı haberden sonra anında Firebase'e yaz
+    sayac = 0
     for rss_h in rss:
         if sayac >= HABER_SAYISI:
             break
@@ -293,6 +245,19 @@ def main():
                 break
             except Exception as e:
                 log(f"  Hata deneme {deneme+1}/{RETRY_LIMIT}: {e}")
+                # 429 ise kota dolmuş, devam etmenin anlamı yok
+                if "429" in str(e):
+                    log("  Kota doldu, döngüden çıkılıyor.")
+                    # Mevcut haberleri koru, yeni eklenenleri kaydet
+                    if mevcut:
+                        try:
+                            firebase_yaz(project_id, token, mevcut[:MAX_HABER])
+                            log(f"Mevcut {len(mevcut)} haber Firebase'de korundu.")
+                        except Exception as fe:
+                            log(f"Firebase koruma HATA: {fe}")
+                    log(f"Toplam üretilen: {sayac} haber.")
+                    log("=" * 50)
+                    return
                 if deneme < RETRY_LIMIT - 1:
                     time.sleep(RETRY_WAIT)
 
@@ -300,7 +265,8 @@ def main():
             log(f"  Atlandı (üretilemedi)")
             continue
 
-        yeniler.append({
+        # ✅ ANINDA FIREBASE'E YAZ
+        yeni_haber = {
             "id":       hid,
             "baslik":   rss_h["baslik"],
             "ozet":     ozet,
@@ -308,23 +274,23 @@ def main():
             "kategori": kategori,
             "tarih":    tarih_tr(),
             "kaynak":   rss_h["link"]
-        })
+        }
+
+        # Yeni haberi en başa ekle, max 30'u aşma
+        mevcut.insert(0, yeni_haber)
+        mevcut = mevcut[:MAX_HABER]
+        var_idler.add(hid)
+
+        try:
+            firebase_yaz(project_id, token, mevcut)
+            log(f"  ✓ Firebase'e yazıldı. (Toplam: {len(mevcut)} haber)")
+        except Exception as e:
+            log(f"  Firebase yazma HATA: {e}")
+
         sayac += 1
         time.sleep(2)
 
-    log(f"Üretilen yeni haber: {len(yeniler)}")
-
-    if not yeniler:
-        log("Yeni haber üretilemedi. Mevcut haberler korunuyor.")
-        return
-
-    tum = (yeniler + mevcut)[:MAX_HABER]
-    try:
-        firebase_yaz(project_id, token, tum)
-        log(f"Tamamlandı! Firebase'de toplam {len(tum)} haber.")
-    except Exception as e:
-        log(f"Firebase yazma HATA: {e}")
-
+    log(f"Tamamlandı! Üretilen: {sayac} haber. Firebase'de toplam: {len(mevcut)} haber.")
     log("=" * 50)
 
 if __name__ == "__main__":
