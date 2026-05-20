@@ -1,19 +1,21 @@
 """
-Hit Studios - Otomatik Haber Üretici v6
-- Her kategoriden 2 haber üretir (6 kategori × 2 = 12 haber/çalışma)
-- Kategori ayrı istek ile belirlenir (daha doğru)
-- Firebase'de max 48 haber tutulur
+Hit Studios - Otomatik Haber Üretici v7
+- Kategori RSS kaynağına göre direkt atanır (Groq'a sorulmaz)
+- Son 24 saatin haberleri alınır (eski haberler atlanır)
+- Her kategoriden 2 haber = 12 haber/çalışma
+- Firebase'de max 48 haber
 - Başlıklardan kaynak site adı temizlenir
-- Her haber üretilince anında Firebase'e yazılır
 """
 
-import os, json, time, random, base64, hashlib, datetime, re
+import os, json, time, base64, hashlib, datetime, re
 import xml.etree.ElementTree as ET
 import requests
+from email.utils import parsedate_to_datetime
 
 # ─── AYARLAR ────────────────────────────────────────────────────────────────
-KATEGORI_BASI_HABER = 2       # Her kategoriden kaç haber
-MAX_HABER           = 48      # Firebase'de max haber sayısı
+KATEGORI_BASI_HABER = 2
+MAX_HABER           = 48
+SAAT_FILTRESI       = 24      # Son kaç saatin haberleri alınsın
 GROQ_MODEL          = "llama-3.1-8b-instant"
 RETRY_LIMIT         = 3
 RETRY_WAIT          = 8
@@ -27,29 +29,28 @@ KATEGORILER = [
     "Teknoloji",
 ]
 
-# Kategori başına RSS kaynakları — en alakalı haberler üstte gelir
 KATEGORI_RSS = {
-    "Yapay Zeka":    [
+    "Yapay Zeka": [
         "https://news.google.com/rss/search?q=yapay+zeka+AI&hl=tr&gl=TR&ceid=TR%3Atr",
         "https://news.google.com/rss/search?q=chatgpt+gemini+yapay+zeka&hl=tr&gl=TR&ceid=TR%3Atr",
     ],
-    "Donanım":       [
+    "Donanım": [
         "https://news.google.com/rss/search?q=iphone+samsung+telefon+donanim&hl=tr&gl=TR&ceid=TR%3Atr",
         "https://news.google.com/rss/search?q=bilgisayar+chip+gpu+cihaz&hl=tr&gl=TR&ceid=TR%3Atr",
     ],
-    "Yazılım":       [
+    "Yazılım": [
         "https://news.google.com/rss/search?q=yazilim+uygulama+guncelleme&hl=tr&gl=TR&ceid=TR%3Atr",
         "https://news.google.com/rss/search?q=mobil+uygulama+platform&hl=tr&gl=TR&ceid=TR%3Atr",
     ],
-    "Sosyal Medya":  [
+    "Sosyal Medya": [
         "https://news.google.com/rss/search?q=instagram+tiktok+twitter+sosyal+medya&hl=tr&gl=TR&ceid=TR%3Atr",
         "https://news.google.com/rss/search?q=youtube+facebook+sosyal+ag&hl=tr&gl=TR&ceid=TR%3Atr",
     ],
-    "Siber Güvenlik":[
+    "Siber Güvenlik": [
         "https://news.google.com/rss/search?q=siber+guvenlik+hack+saldiri&hl=tr&gl=TR&ceid=TR%3Atr",
         "https://news.google.com/rss/search?q=veri+ihlali+fidye+yazilim&hl=tr&gl=TR&ceid=TR%3Atr",
     ],
-    "Teknoloji":     [
+    "Teknoloji": [
         "https://news.google.com/rss/search?q=teknoloji+girisim+startup&hl=tr&gl=TR&ceid=TR%3Atr",
         "https://news.google.com/rss/search?q=blockchain+kripto+fintech&hl=tr&gl=TR&ceid=TR%3Atr",
     ],
@@ -60,12 +61,28 @@ def log(msg):
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 def baslik_temizle(baslik):
-    """Başlıktan '- Site Adı' veya '| Site Adı' formatını kaldır."""
     temiz = re.sub(r'\s*[-|]\s*[^-|]{3,50}$', '', baslik).strip()
     return temiz if temiz else baslik
 
-def rss_cek(url):
-    """Tek bir RSS URL'sinden haberleri çek."""
+def haber_taze_mi(pub_date_str):
+    """RSS pubDate string'ini parse edip son 24 saat içinde mi kontrol et."""
+    if not pub_date_str:
+        return True  # Tarih yoksa kabul et
+    try:
+        pub_dt = parsedate_to_datetime(pub_date_str)
+        # Timezone'u UTC'ye çevir
+        if pub_dt.tzinfo:
+            import datetime as dt
+            now_utc = dt.datetime.now(dt.timezone.utc)
+            fark = now_utc - pub_dt
+        else:
+            fark = datetime.datetime.utcnow() - pub_dt.replace(tzinfo=None)
+        return fark.total_seconds() < (SAAT_FILTRESI * 3600)
+    except Exception:
+        return True  # Parse hatası varsa kabul et
+
+def rss_cek(url, kategori):
+    """RSS'ten son 24 saatin haberlerini çek."""
     try:
         r = requests.get(url, timeout=20, headers={
             "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)",
@@ -75,18 +92,34 @@ def rss_cek(url):
         root  = ET.fromstring(r.text)
         items = root.findall(".//item")
         haberler = []
+        atlanan  = 0
         for item in items:
-            baslik = item.findtext("title", "").strip()
-            link   = item.findtext("link",  "").strip()
-            if baslik and link and len(baslik) > 10:
-                haberler.append({"baslik": baslik_temizle(baslik), "link": link})
+            baslik   = item.findtext("title",   "").strip()
+            link     = item.findtext("link",    "").strip()
+            pub_date = item.findtext("pubDate", "").strip()
+
+            if not baslik or not link or len(baslik) < 10:
+                continue
+
+            if not haber_taze_mi(pub_date):
+                atlanan += 1
+                continue
+
+            haberler.append({
+                "baslik":    baslik_temizle(baslik),
+                "link":      link,
+                "pub_date":  pub_date,
+                "kategori":  kategori  # Kategori direkt RSS kaynağından atanır
+            })
+
+        log(f"  RSS: {len(haberler)} taze haber ({atlanan} eski atlandı) ← {url[:50]}...")
         return haberler
     except Exception as e:
-        log(f"  RSS HATA ({url[:50]}...): {e}")
+        log(f"  RSS HATA: {e}")
         return []
 
 def groq_iste(sistem, kullanici, api_key, max_tokens=1500):
-    """Groq API'ye istek at, retry mantığı ile."""
+    """Groq API isteği, akıllı retry ile."""
     for deneme in range(RETRY_LIMIT):
         try:
             r = requests.post(
@@ -105,13 +138,15 @@ def groq_iste(sistem, kullanici, api_key, max_tokens=1500):
             )
             if not r.ok:
                 hata = r.text
-                # TPM limitine takıldıysak bekleme süresini oku
                 eslesme = re.search(r'try again in (\d+\.?\d*)s', hata)
                 bekle = float(eslesme.group(1)) + 1 if eslesme else RETRY_WAIT
-                raise Exception(f"HTTP {r.status_code} — bekle {bekle:.1f}s: {hata[:100]}")
+                if deneme < RETRY_LIMIT - 1:
+                    log(f"    Rate limit, {bekle:.0f}s bekleniyor...")
+                    time.sleep(min(bekle, 30))
+                    continue
+                raise Exception(f"HTTP {r.status_code}: {hata[:100]}")
 
             metin = r.json()["choices"][0]["message"]["content"].strip()
-            # ```...``` bloğunu temizle
             if "```" in metin:
                 parcalar = metin.split("```")
                 metin = parcalar[1] if len(parcalar) > 1 else parcalar[0]
@@ -120,68 +155,35 @@ def groq_iste(sistem, kullanici, api_key, max_tokens=1500):
             return metin.strip()
 
         except Exception as e:
-            log(f"    Groq hata deneme {deneme+1}/{RETRY_LIMIT}: {str(e)[:100]}")
             if deneme < RETRY_LIMIT - 1:
-                eslesme = re.search(r'bekle (\d+\.?\d*)s', str(e))
-                bekle = float(eslesme.group(1)) if eslesme else RETRY_WAIT
-                time.sleep(min(bekle, 30))
+                log(f"    Hata deneme {deneme+1}: {str(e)[:80]}, {RETRY_WAIT}s bekleniyor...")
+                time.sleep(RETRY_WAIT)
             else:
                 raise
 
-def kategori_belirle(baslik, api_key):
-    """Haber başlığına göre kategori belirle — ayrı istek."""
-    sistem = "Sen bir teknoloji editörüsün. Verilen haber başlığı için en uygun kategoriyi seçiyorsun."
-    kullanici = f"""Haber başlığı: {baslik}
-
-Sadece aşağıdaki 6 kategoriden birini yaz, başka hiçbir şey yazma:
-
-Yapay Zeka → ChatGPT, Gemini, yapay zeka modeli, LLM, AI
-Donanım → iPhone, Samsung, telefon, tablet, bilgisayar, chip, GPU, ekran, cihaz
-Yazılım → uygulama, güncelleme, kod, platform, işletim sistemi, API, yazılım
-Sosyal Medya → Instagram, TikTok, Twitter, X, YouTube, Facebook, sosyal ağ
-Siber Güvenlik → hack, siber saldırı, virüs, fidye, veri ihlali, güvenlik açığı
-Teknoloji → yukarıdakilerin dışındaki teknoloji haberleri
-
-Cevap (sadece kategori adı):"""
-
-    sonuc = groq_iste(sistem, kullanici, api_key, 20).strip()
-    # Tam eşleşme
-    if sonuc in KATEGORILER:
-        return sonuc
-    # Kısmi eşleşme
-    for k in KATEGORILER:
-        if k.lower() in sonuc.lower():
-            return k
-    return "Teknoloji"
-
 def makale_uret(baslik, api_key):
-    """Haber başlığından makale ve özet üret."""
+    """Sadece makale ve özet üret. Kategori artık RSS'ten geliyor."""
     sistem = "Sen Hit Studios'un teknoloji editörüsün. Profesyonel, akıcı Türkçe teknoloji makaleleri yazıyorsun."
-    kullanici = f"""Şu haber başlığından yola çıkarak SADECE JSON döndür:
+    kullanici = f"""Şu haber başlığından SADECE JSON döndür:
 
 Haber: {baslik}
 
-JSON:
 {{
   "ozet": "tek cümlelik dikkat çekici Türkçe özet",
   "icerik": "<p>paragraf 1</p><h3>Başlık</h3><p>paragraf 2</p><p>paragraf 3</p>"
 }}
 
-Kurallar:
 - ozet: tek cümle, merak uyandırsın
 - icerik: 3-4 paragraf, <p> ve <h3> etiketleri, Türkçe
-- SADECE JSON döndür"""
+- SADECE JSON döndür, başka hiçbir şey yazma"""
 
     metin = groq_iste(sistem, kullanici, api_key, 1200)
-    # JSON parse
     if "{" in metin and "}" in metin:
         start = metin.index("{")
         end   = metin.rindex("}") + 1
         metin = metin[start:end]
     data   = json.loads(metin)
-    ozet   = data.get("ozet", "")
-    icerik = data.get("icerik", "")
-    return ozet, icerik
+    return data.get("ozet", ""), data.get("icerik", "")
 
 def get_access_token(service_account_json):
     sa = json.loads(service_account_json)
@@ -255,8 +257,9 @@ def tarih_tr():
 
 def main():
     log("=" * 55)
-    log("Hit Studios Haber Üretici v6 Başladı")
-    log(f"Hedef: Her kategoriden {KATEGORI_BASI_HABER} haber = {len(KATEGORILER)*KATEGORI_BASI_HABER} haber")
+    log("Hit Studios Haber Üretici v7 Başladı")
+    log(f"Hedef: {len(KATEGORILER)} kategori × {KATEGORI_BASI_HABER} = {len(KATEGORILER)*KATEGORI_BASI_HABER} haber")
+    log(f"Filtre: Son {SAAT_FILTRESI} saatin haberleri")
     log("=" * 55)
 
     groq_key   = os.environ.get("GROQ_API_KEY", "")
@@ -267,7 +270,6 @@ def main():
         log("HATA: GROQ_API_KEY veya FIREBASE_KEY eksik!")
         return
 
-    # Groq testi
     log("Groq bağlantısı test ediliyor...")
     try:
         test = groq_iste("Sen bir asistansın.", "Sadece 'OK' yaz.", groq_key, 10)
@@ -275,45 +277,41 @@ def main():
     except Exception as e:
         log(f"Groq HATA: {e}"); return
 
-    # Firebase bağlantısı
     try:
         token = get_access_token(base64.b64decode(fb_key_b64).decode("utf-8"))
         log("Firebase bağlantısı kuruldu.")
     except Exception as e:
         log(f"Firebase auth HATA: {e}"); return
 
-    # Mevcut haberleri oku
     mevcut    = firebase_oku(project_id, token)
     var_idler = {h.get("id","") for h in mevcut}
     log(f"Mevcut haber sayısı: {len(mevcut)}")
 
-    # Her kategoriden haber üret
     toplam_uretilen = 0
 
     for kategori in KATEGORILER:
         log(f"\n── {kategori} ──")
         kategori_sayac = 0
-        rss_urls = KATEGORI_RSS.get(kategori, [])
 
-        # Bu kategorinin RSS'lerinden haberleri çek
+        # RSS'ten taze haberleri çek
         aday_haberler = []
-        for url in rss_urls:
-            haberler = rss_cek(url)
-            log(f"  RSS: {len(haberler)} haber çekildi")
-            aday_haberler.extend(haberler)
+        for url in KATEGORI_RSS.get(kategori, []):
+            aday_haberler.extend(rss_cek(url, kategori))
 
         # Tekrarları kaldır
-        gorulmus = set()
-        benzersiz = []
+        gorulmus, benzersiz = set(), []
         for h in aday_haberler:
             k = h["baslik"][:60].lower()
             if k not in gorulmus:
                 gorulmus.add(k)
                 benzersiz.append(h)
 
-        log(f"  Benzersiz aday: {len(benzersiz)}")
+        log(f"  Benzersiz taze haber: {len(benzersiz)}")
 
-        # Bu kategoriden KATEGORI_BASI_HABER kadar haber üret
+        if len(benzersiz) == 0:
+            log(f"  ⚠ Son {SAAT_FILTRESI} saatte haber bulunamadı, atlanıyor.")
+            continue
+
         for rss_h in benzersiz:
             if kategori_sayac >= KATEGORI_BASI_HABER:
                 break
@@ -326,13 +324,7 @@ def main():
             log(f"  [{kategori_sayac+1}/{KATEGORI_BASI_HABER}] Üretiliyor: {rss_h['baslik'][:50]}...")
 
             try:
-                # 1. Makale ve özet üret
                 ozet, icerik = makale_uret(rss_h["baslik"], groq_key)
-                time.sleep(2)
-                # 2. Kategoriyi ayrı istek ile doğrula
-                gercek_kategori = kategori_belirle(rss_h["baslik"], groq_key)
-                log(f"     Kategori: {gercek_kategori}")
-
             except Exception as e:
                 log(f"  Hata (atlandı): {e}")
                 continue
@@ -342,7 +334,7 @@ def main():
                 "baslik":   rss_h["baslik"],
                 "ozet":     ozet,
                 "icerik":   icerik,
-                "kategori": gercek_kategori,
+                "kategori": kategori,   # ← Direkt RSS kaynağından, Groq'a sorulmaz
                 "tarih":    tarih_tr(),
                 "kaynak":   rss_h["link"]
             }
@@ -353,9 +345,9 @@ def main():
 
             try:
                 firebase_yaz(project_id, token, mevcut)
-                log(f"  ✓ Firebase'e yazıldı. (Toplam: {len(mevcut)} haber)")
+                log(f"  ✓ Yazıldı — Kategori: {kategori} (Toplam: {len(mevcut)})")
             except Exception as e:
-                log(f"  Firebase yazma HATA: {e}")
+                log(f"  Firebase HATA: {e}")
 
             kategori_sayac  += 1
             toplam_uretilen += 1
@@ -364,7 +356,7 @@ def main():
         log(f"  {kategori}: {kategori_sayac} haber üretildi.")
 
     log(f"\n{'='*55}")
-    log(f"Tamamlandı! Üretilen: {toplam_uretilen} haber. Firebase'de toplam: {len(mevcut)} haber.")
+    log(f"Tamamlandı! Üretilen: {toplam_uretilen} | Firebase: {len(mevcut)} haber")
     log("=" * 55)
 
 if __name__ == "__main__":
