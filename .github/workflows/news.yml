@@ -24,7 +24,7 @@ jobs:
           python-version: '3.11'
 
       - name: Bağımlılıkları kur
-        run: pip install cryptography
+        run: pip install cryptography requests
 
       - name: Haberleri üret ve Firebase'e kaydet
         env:
