@@ -176,19 +176,26 @@ def groq_iste(sistem, kullanici, api_key, max_tokens=1500):
 
 def makale_uret(baslik, api_key):
     """Sadece makale ve özet üret. Kategori artık RSS'ten geliyor."""
-    sistem = "Sen Hit Studios'un teknoloji editörüsün. Profesyonel, akıcı Türkçe teknoloji makaleleri yazıyorsun."
-    kullanici = f"""Şu haber başlığından SADECE JSON döndür:
+    sistem = "Sen Hit Studios'un teknoloji editörüsün. Profesyonel, akıcı Türkçe teknoloji makaleleri yazıyorsun. Verilen JSON formatına kesinlikle uyuyorsun."
+    kullanici = f"""Aşağıdaki haber başlığı hakkında gerçek bir teknoloji makalesi yaz ve SADECE JSON olarak döndür:
 
-Haber: {baslik}
+Haber başlığı: {baslik}
 
+Döndüreceğin JSON:
 {{
-  "ozet": "tek cümlelik dikkat çekici Türkçe özet",
-  "icerik": "<p>paragraf 1</p><h3>Başlık</h3><p>paragraf 2</p><p>paragraf 3</p>"
+  "ozet": "Bu haberi özetleyen tek ve dikkat çekici bir Türkçe cümle",
+  "icerik": "Makalenin tüm HTML içeriği buraya gelecek"
 }}
 
-- ozet: tek cümle, merak uyandırsın
-- icerik: 3-4 paragraf, <p> ve <h3> etiketleri, Türkçe
-- SADECE JSON döndür, başka hiçbir şey yazma"""
+icerik alanı için kurallar:
+- Gerçek makale içeriği yaz, örnek metin değil
+- 3 ile 4 paragraf yaz
+- Her paragrafı <p> etiketi içine al
+- Araya konuya uygun bir başlık ekle, <h3> etiketini kullan
+- Türkçe yaz, doğal ve akıcı olsun
+- HTML etiketleri dışında tırnak işareti kullanma
+
+Sadece JSON döndür:"""
 
     metin = groq_iste(sistem, kullanici, api_key, 1200)
     if "{" in metin and "}" in metin:
