@@ -175,10 +175,17 @@ def firebase_oku(project_id, token):
         log(f"Firebase okuma: {e}")
         return []
 
+def temizle(s):
+    """Firebase için string temizle."""
+    if not isinstance(s, str):
+        s = str(s)
+    # Null byte ve kontrol karakterlerini kaldır
+    return s.replace("\x00", "").replace("\r", "")
+
 def firebase_yaz(project_id, token, haberler):
     url = f"https://firestore.googleapis.com/v1/projects/{project_id}/databases/(default)/documents/hit_data/gazete"
     def to_fs(h):
-        return {"mapValue": {"fields": {k: {"stringValue": str(v)} for k,v in h.items()}}}
+        return {"mapValue": {"fields": {k: {"stringValue": temizle(v)} for k,v in h.items()}}}
     body = {"fields": {"items": {"arrayValue": {"values": [to_fs(h) for h in haberler]}}}}
     r = requests.patch(url, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=30)
     if not r.ok:
@@ -284,7 +291,7 @@ def main():
             log(f"  Firebase yazma HATA: {e}")
 
         sayac += 1
-        time.sleep(1)  # Rate limit koruması
+        time.sleep(4)  # TPM limiti aşmamak için
 
     log(f"Tamamlandı! Üretilen: {sayac} haber. Firebase'de toplam: {len(mevcut)} haber.")
     log("=" * 50)
