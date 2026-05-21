@@ -1,10 +1,10 @@
 """
-Hit Studios - Otomatik Haber Üretici v7
-- Kategori RSS kaynağına göre direkt atanır (Groq'a sorulmaz)
-- Son 24 saatin haberleri alınır (eski haberler atlanır)
+Hit Studios - Otomatik Haber Üretici v7.1 (Zırhlı Ayrıştırma)
+- Kategori RSS kaynağına göre direkt atanır
+- Son 24 saatin haberleri alınır
 - Her kategoriden 2 haber = 12 haber/çalışma
 - Firebase'de max 48 haber
-- Başlıklardan kaynak site adı temizlenir
+- Hatalı LLM çıktıları Regex ile filtrelenir (===OZET=== hatası giderildi)
 """
 
 import os, json, time, base64, hashlib, datetime, re
@@ -61,26 +61,22 @@ def log(msg):
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 def turkce_mi(baslik):
-    """Başlık Latin/Türkçe alfabesinde mi kontrol et. Kiril, Arap vb. dilleri filtrele."""
-    # Latin ve Türkçe özel karakterler dışında çok fazla karakter varsa reddet
     latin_ve_turkce = set('abcçdefgğhıijklmnoöpqrsştuüvwxyzABCÇDEFGĞHIİJKLMNOÖPQRSŞTUÜVWXYZ0123456789 .,!?:;\'"-()[]&@#%+/\\')
     toplam = len(baslik)
     if toplam == 0:
         return False
     latin_sayisi = sum(1 for c in baslik if c in latin_ve_turkce)
-    return (latin_sayisi / toplam) >= 0.85  # %85'i Latin/Türkçe ise kabul et
+    return (latin_sayisi / toplam) >= 0.85
 
 def baslik_temizle(baslik):
     temiz = re.sub(r'\s*[-|]\s*[^-|]{3,50}$', '', baslik).strip()
     return temiz if temiz else baslik
 
 def haber_taze_mi(pub_date_str):
-    """RSS pubDate string'ini parse edip son 24 saat içinde mi kontrol et."""
     if not pub_date_str:
-        return True  # Tarih yoksa kabul et
+        return True 
     try:
         pub_dt = parsedate_to_datetime(pub_date_str)
-        # Timezone'u UTC'ye çevir
         if pub_dt.tzinfo:
             import datetime as dt
             now_utc = dt.datetime.now(dt.timezone.utc)
@@ -89,10 +85,9 @@ def haber_taze_mi(pub_date_str):
             fark = datetime.datetime.utcnow() - pub_dt.replace(tzinfo=None)
         return fark.total_seconds() < (SAAT_FILTRESI * 3600)
     except Exception:
-        return True  # Parse hatası varsa kabul et
+        return True 
 
 def rss_cek(url, kategori):
-    """RSS'ten son 24 saatin haberlerini çek."""
     try:
         r = requests.get(url, timeout=20, headers={
             "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)",
@@ -112,7 +107,7 @@ def rss_cek(url, kategori):
                 continue
 
             if not turkce_mi(baslik):
-                continue  # Türkçe/Latin olmayan haberleri atla
+                continue
 
             if not haber_taze_mi(pub_date):
                 atlanan += 1
@@ -122,7 +117,7 @@ def rss_cek(url, kategori):
                 "baslik":    baslik_temizle(baslik),
                 "link":      link,
                 "pub_date":  pub_date,
-                "kategori":  kategori  # Kategori direkt RSS kaynağından atanır
+                "kategori":  kategori 
             })
 
         log(f"  RSS: {len(haberler)} taze haber ({atlanan} eski atlandı) ← {url[:50]}...")
@@ -132,7 +127,6 @@ def rss_cek(url, kategori):
         return []
 
 def groq_iste(sistem, kullanici, api_key, max_tokens=1500):
-    """Groq API isteği, akıllı retry ile."""
     for deneme in range(RETRY_LIMIT):
         try:
             r = requests.post(
@@ -175,7 +169,6 @@ def groq_iste(sistem, kullanici, api_key, max_tokens=1500):
                 raise
 
 def makale_uret(baslik, api_key):
-    """Makale ve özet üret. JSON yerine ayraç formatı kullanılır."""
     sistem = "Sen Hit Studios'un teknoloji editörüsün. Profesyonel, akıcı Türkçe teknoloji makaleleri yazıyorsun."
     kullanici = f"""Aşağıdaki haber başlığı hakkında Türkçe makale yaz.
 
@@ -194,22 +187,39 @@ Bu haberi özetleyen tek ve dikkat çekici bir Türkçe cümle buraya gelecek.
 
     metin = groq_iste(sistem, kullanici, api_key, 1200)
 
-    # Ayraçlarla parse et
-    ozet   = ""
+    # 1. YAPAY ZEKA SAPMALARINI DÜZELT (Yıldızları ve fazlalıkları sil, formatı sabitle)
+    metin = re.sub(r'(?i)===\s*\*?\s*[oö]zet\s*\*?\s*===', '===OZET===', metin)
+    metin = re.sub(r'(?i)===\s*\*?\s*[iı]çer[iı]k\s*\*?\s*===', '===ICERIK===', metin)
+    metin = re.sub(r'(?i)===\s*\*?\s*b[iı]t[iı]ş\s*\*?\s*===', '===BITIS===', metin)
+    
+    # MD yıldızları varsa temizle
+    metin = metin.replace('**===OZET===**', '===OZET===').replace('**===ICERIK===**', '===ICERIK===').replace('**===BITIS===**', '===BITIS===')
+
+    ozet = ""
     icerik = ""
-    try:
-        if "===OZET===" in metin and "===ICERIK===" in metin:
-            ozet_kismi   = metin.split("===OZET===")[1].split("===ICERIK===")[0].strip()
-            icerik_kismi = metin.split("===ICERIK===")[1].split("===BITIS===")[0].strip()
-            ozet   = ozet_kismi
-            icerik = icerik_kismi
+    
+    # 2. BÖLÜMLEME (Regex ile çok daha güvenli arama)
+    ozet_match = re.search(r'===OZET===(.*?)===ICERIK===', metin, re.DOTALL)
+    icerik_match = re.search(r'===ICERIK===(.*?)(===BITIS===|$)', metin, re.DOTALL)
+
+    if ozet_match and icerik_match:
+        ozet = ozet_match.group(1).strip()
+        icerik = icerik_match.group(1).strip()
+    else:
+        # 3. YEDEK PLAN: Ayraçlar hala bulunamazsa, içinde === geçen satırları silip temiz metni al
+        temiz_satirlar = [s.strip() for s in metin.strip().split("\n") if not re.search(r'===.*?===', s)]
+        temiz_satirlar = [s for s in temiz_satirlar if s] # Boş satırları at
+        
+        if len(temiz_satirlar) >= 2:
+            ozet = temiz_satirlar[0]
+            icerik = "\n".join(temiz_satirlar[1:])
         else:
-            # Ayraç yoksa ilk satırı özet, kalanı içerik yap
-            satirlar = metin.strip().split("\n")
-            ozet   = satirlar[0].strip()
-            icerik = "\n".join(satirlar[1:]).strip()
-    except Exception as e:
-        raise Exception(f"Parse hatası: {e}")
+            raise Exception("Format anlaşılamadı.")
+
+    # 4. SON TEMİZLİK (Gözden kaçan == veya yıldızları sil)
+    ozet = re.sub(r'===.*?===', '', ozet).strip()
+    icerik = re.sub(r'===.*?===', '', icerik).strip()
+    ozet = ozet.replace('**', '')
 
     if not ozet or not icerik:
         raise Exception("Özet veya içerik boş geldi")
@@ -288,7 +298,7 @@ def tarih_tr():
 
 def main():
     log("=" * 55)
-    log("Hit Studios Haber Üretici v7 Başladı")
+    log("Hit Studios Haber Üretici v7.1 Başladı")
     log(f"Hedef: {len(KATEGORILER)} kategori × {KATEGORI_BASI_HABER} = {len(KATEGORILER)*KATEGORI_BASI_HABER} haber")
     log(f"Filtre: Son {SAAT_FILTRESI} saatin haberleri, sadece Türkçe/Latin")
     log("=" * 55)
@@ -365,7 +375,7 @@ def main():
                 "baslik":   rss_h["baslik"],
                 "ozet":     ozet,
                 "icerik":   icerik,
-                "kategori": kategori,   # ← Direkt RSS kaynağından, Groq'a sorulmaz
+                "kategori": kategori,
                 "tarih":    tarih_tr(),
                 "kaynak":   rss_h["link"]
             }
