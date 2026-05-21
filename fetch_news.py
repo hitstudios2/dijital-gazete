@@ -1,7 +1,7 @@
 """
 Hit Studios - Otomatik Haber Üretici v7.1 (Zırhlı Ayrıştırma)
 - Kategori RSS kaynağına göre direkt atanır
-- Son 24 saatin haberleri alınır
+- Son 48 saatin haberleri alınır
 - Her kategoriden 2 haber = 12 haber/çalışma
 - Firebase'de max 48 haber
 - Hatalı LLM çıktıları Regex ile filtrelenir (===OZET=== hatası giderildi)
@@ -200,7 +200,7 @@ Bu haberi özetleyen tek ve dikkat çekici bir Türkçe cümle buraya gelecek.
     
     # 2. BÖLÜMLEME (Regex ile çok daha güvenli arama)
     ozet_match = re.search(r'===OZET===(.*?)===ICERIK===', metin, re.DOTALL)
-    icerik_match = re.search(r'===ICERIK===(.*?)(===BITIS===|$)', metin, re.DOTALL)
+    icerik_match = re.search(r'===ICERIK===(.*?)(?:===BITIS===|\Z)', metin, re.DOTALL)
 
     if ozet_match and icerik_match:
         ozet = ozet_match.group(1).strip()
