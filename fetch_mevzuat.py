@@ -22,18 +22,29 @@ RETRY_WAIT          = 8
 KATEGORILER = {
     "mevzuat": [   # Sol panel
         "https://www.resmigazete.gov.tr/rss",
-        "https://news.google.com/rss/search?q=restoran+lokanta+kanun+yonetmelik&hl=tr&gl=TR&ceid=TR%3Atr",
-        "https://news.google.com/rss/search?q=gida+guvenligi+yonetmelik+mevzuat&hl=tr&gl=TR&ceid=TR%3Atr",
+        "https://news.google.com/rss/search?q=gida+yonetmelik+kanun+site:tarim.gov.tr+OR+site:resmigazete.gov.tr+OR+site:dunya.com&hl=tr&gl=TR&ceid=TR%3Atr",
+        "https://news.google.com/rss/search?q=restoran+lokanta+gida+mevzuat+yonetmelik+turkiye&hl=tr&gl=TR&ceid=TR%3Atr",
     ],
     "duyuru": [    # Sağ panel
-        "https://news.google.com/rss/search?q=restoran+kafe+lokanta+vergi+sgk&hl=tr&gl=TR&ceid=TR%3Atr",
-        "https://news.google.com/rss/search?q=gida+isletme+denetim+saglik+bakanligi&hl=tr&gl=TR&ceid=TR%3Atr",
-        "https://news.google.com/rss/search?q=asgari+ucret+esnaf+isletme+2026&hl=tr&gl=TR&ceid=TR%3Atr",
+        "https://news.google.com/rss/search?q=gida+denetim+tarim+bakanligi+turkiye+2026&hl=tr&gl=TR&ceid=TR%3Atr",
+        "https://news.google.com/rss/search?q=lokanta+restoran+kafe+vergi+sgk+ceza+turkiye&hl=tr&gl=TR&ceid=TR%3Atr",
+        "https://news.google.com/rss/search?q=gida+guvenligi+haber+saglik+bakanligi+turkiye&hl=tr&gl=TR&ceid=TR%3Atr",
     ],
 }
 # ─────────────────────────────────────────────────────────────────────────────
 
-def log(msg):
+ENGELLI_DOMAIN = [
+    'vietnam.vn', '.vn/', 'aljazeera', 'bbc.', 'reuters.', 'bloomberg.',
+    'theguardian', 'nytimes', 'washingtonpost', 'france24', 'dw.com',
+]
+
+def turkce_kaynak_mi(link):
+    """Yabancı kaynak domainlerini filtrele."""
+    link_lower = link.lower()
+    for domain in ENGELLI_DOMAIN:
+        if domain in link_lower:
+            return False
+    return True
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 def turkce_mi(baslik):
@@ -76,6 +87,7 @@ def rss_cek(url, panel):
             link     = item.findtext("link",    "").strip()
             pub_date = item.findtext("pubDate", "").strip()
             if not baslik or not link or len(baslik) < 8: continue
+            if not turkce_kaynak_mi(link): continue
             if not turkce_mi(baslik): continue
             if not haber_taze_mi(pub_date): atlanan += 1; continue
             haberler.append({
