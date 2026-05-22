@@ -1,0 +1,30 @@
+name: Lokanta Mevzuat Üretici
+
+on:
+  schedule:
+    - cron: '0 4 * * *'    # Sabah 07:00 Türkiye (UTC+3)
+    - cron: '0 13 * * *'   # Öğlen 16:00 Türkiye (UTC+3)
+  workflow_dispatch:
+
+jobs:
+  mevzuat-uret:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Kodu çek
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Bağımlılıkları kur
+        run: pip install cryptography requests
+
+      - name: Mevzuatı çek ve Firebase'e kaydet
+        env:
+          GROQ_API_KEY:        ${{ secrets.GROQ_API_KEY }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_KEY:        ${{ secrets.FIREBASE_KEY }}
+        run: python fetch_mevzuat.py
