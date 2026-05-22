@@ -74,7 +74,7 @@ def baslik_temizle(baslik):
 
 def haber_taze_mi(pub_date_str):
     if not pub_date_str:
-        return True 
+        return True
     try:
         pub_dt = parsedate_to_datetime(pub_date_str)
         if pub_dt.tzinfo:
@@ -85,7 +85,7 @@ def haber_taze_mi(pub_date_str):
             fark = datetime.datetime.utcnow() - pub_dt.replace(tzinfo=None)
         return fark.total_seconds() < (SAAT_FILTRESI * 3600)
     except Exception:
-        return True 
+        return True
 
 def rss_cek(url, kategori):
     try:
@@ -117,7 +117,7 @@ def rss_cek(url, kategori):
                 "baslik":    baslik_temizle(baslik),
                 "link":      link,
                 "pub_date":  pub_date,
-                "kategori":  kategori 
+                "kategori":  kategori
             })
 
         log(f"  RSS: {len(haberler)} taze haber ({atlanan} eski atlandı) ← {url[:50]}...")
@@ -187,39 +187,37 @@ Bu haberi özetleyen tek ve dikkat çekici bir Türkçe cümle buraya gelecek.
 
     metin = groq_iste(sistem, kullanici, api_key, 1200)
 
-    # 1. YAPAY ZEKA SAPMALARINI DÜZELT (Yıldızları ve fazlalıkları sil, formatı sabitle)
+    # 1. YAPAY ZEKA SAPMALARINI DÜZELT
     metin = re.sub(r'(?i)===\s*\*?\s*[oö]zet\s*\*?\s*===', '===OZET===', metin)
     metin = re.sub(r'(?i)===\s*\*?\s*[iı]çer[iı]k\s*\*?\s*===', '===ICERIK===', metin)
     metin = re.sub(r'(?i)===\s*\*?\s*b[iı]t[iı]ş\s*\*?\s*===', '===BITIS===', metin)
-    
-    # MD yıldızları varsa temizle
     metin = metin.replace('**===OZET===**', '===OZET===').replace('**===ICERIK===**', '===ICERIK===').replace('**===BITIS===**', '===BITIS===')
 
     ozet = ""
     icerik = ""
-    
-    # 2. BÖLÜMLEME (Regex ile çok daha güvenli arama)
-    ozet_match = re.search(r'===OZET===(.*?)===ICERIK===', metin, re.DOTALL)
+
+    # 2. BÖLÜMLEME
+    ozet_match   = re.search(r'===OZET===(.*?)===ICERIK===', metin, re.DOTALL)
     icerik_match = re.search(r'===ICERIK===(.*?)(?:===BITIS===|\Z)', metin, re.DOTALL)
 
     if ozet_match and icerik_match:
-        ozet = ozet_match.group(1).strip()
+        ozet   = ozet_match.group(1).strip()
         icerik = icerik_match.group(1).strip()
     else:
-        # 3. YEDEK PLAN: Ayraçlar hala bulunamazsa, içinde === geçen satırları silip temiz metni al
+        # 3. YEDEK PLAN
         temiz_satirlar = [s.strip() for s in metin.strip().split("\n") if not re.search(r'===.*?===', s)]
-        temiz_satirlar = [s for s in temiz_satirlar if s] # Boş satırları at
-        
+        temiz_satirlar = [s for s in temiz_satirlar if s]
+
         if len(temiz_satirlar) >= 2:
-            ozet = temiz_satirlar[0]
+            ozet   = temiz_satirlar[0]
             icerik = "\n".join(temiz_satirlar[1:])
         else:
             raise Exception("Format anlaşılamadı.")
 
-    # 4. SON TEMİZLİK (Gözden kaçan == veya yıldızları sil)
-    ozet = re.sub(r'===.*?===', '', ozet).strip()
+    # 4. SON TEMİZLİK
+    ozet   = re.sub(r'===.*?===', '', ozet).strip()
     icerik = re.sub(r'===.*?===', '', icerik).strip()
-    ozet = ozet.replace('**', '')
+    ozet   = ozet.replace('**', '')
 
     if not ozet or not icerik:
         raise Exception("Özet veya içerik boş geldi")
@@ -276,8 +274,7 @@ def firebase_yaz(project_id, token, haberler):
         fields = {}
         for k, v in h.items():
             v_str = temizle(v)
-            if k == "icerik":
-                v_str = base64.b64encode(v_str.encode("utf-8")).decode("ascii")
+            # icerik artık base64'e çevrilmiyor, düz string olarak saklanıyor
             fields[k] = {"stringValue": v_str}
         return {"mapValue": {"fields": fields}}
     body = {"fields": {"items": {"arrayValue": {"values": [to_fs(h) for h in haberler]}}}}
@@ -334,12 +331,10 @@ def main():
         log(f"\n── {kategori} ──")
         kategori_sayac = 0
 
-        # RSS'ten taze haberleri çek
         aday_haberler = []
         for url in KATEGORI_RSS.get(kategori, []):
             aday_haberler.extend(rss_cek(url, kategori))
 
-        # Tekrarları kaldır
         gorulmus, benzersiz = set(), []
         for h in aday_haberler:
             k = h["baslik"][:60].lower()
