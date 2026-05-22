@@ -1,8 +1,8 @@
 """
 Hit Studios - Lokanta Mevzuat Üretici v1.0
-- Resmi Gazete RSS + Google News'ten gıda/işletme mevzuatı çeker
+- Resmi Gazete RSS + Google News'ten SADECE Resmi Gazete gıda/işletme mevzuatı çeker
 - Groq ile özetler ve Firebase'e yazar
-- Sol panel: Mevzuat/Kanun, Sağ panel: Haberler/Duyurular
+- Sol panel: Mevzuat/Kanun (Sadece Resmi Gazete), Sağ panel: Haberler/Duyurular (Sektörel Haberler)
 - Firebase: hit_data/lokanta_mevzuat
 """
 
@@ -20,12 +20,11 @@ RETRY_LIMIT         = 3
 RETRY_WAIT          = 8
 
 KATEGORILER = {
-    "mevzuat": [   # Sol panel
+    "mevzuat": [   # Sol panel - SADECE RESMİ GAZETE
         "https://www.resmigazete.gov.tr/rss",
-        "https://news.google.com/rss/search?q=gida+yonetmelik+kanun+site:tarim.gov.tr+OR+site:resmigazete.gov.tr+OR+site:dunya.com&hl=tr&gl=TR&ceid=TR%3Atr",
-        "https://news.google.com/rss/search?q=restoran+lokanta+gida+mevzuat+yonetmelik+turkiye&hl=tr&gl=TR&ceid=TR%3Atr",
+        "https://news.google.com/rss/search?q=site:resmigazete.gov.tr+(gida+OR+restoran+OR+lokanta+OR+vergi+OR+yonetmelik+OR+teblig)&hl=tr&gl=TR&ceid=TR%3Atr",
     ],
-    "duyuru": [    # Sağ panel
+    "duyuru": [    # Sağ panel - SADECE SEKTÖREL HABERLER (Lokanta/Kafe/Gıda)
         "https://news.google.com/rss/search?q=gida+denetim+tarim+bakanligi+turkiye+2026&hl=tr&gl=TR&ceid=TR%3Atr",
         "https://news.google.com/rss/search?q=lokanta+restoran+kafe+vergi+sgk+ceza+turkiye&hl=tr&gl=TR&ceid=TR%3Atr",
         "https://news.google.com/rss/search?q=gida+guvenligi+haber+saglik+bakanligi+turkiye&hl=tr&gl=TR&ceid=TR%3Atr",
