@@ -38,6 +38,9 @@ ENGELLI_DOMAIN = [
     'theguardian', 'nytimes', 'washingtonpost', 'france24', 'dw.com',
 ]
 
+def log(msg):
+    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+
 def turkce_kaynak_mi(link):
     """Yabancı kaynak domainlerini filtrele."""
     link_lower = link.lower()
@@ -45,7 +48,6 @@ def turkce_kaynak_mi(link):
         if domain in link_lower:
             return False
     return True
-    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 def turkce_mi(baslik):
     latin_ve_turkce = set('abcçdefgğhıijklmnoöpqrsştuüvwxyzABCÇDEFGĞHIİJKLMNOÖPQRSŞTUÜVWXYZ0123456789 .,!?:;\'"-()/\\')
